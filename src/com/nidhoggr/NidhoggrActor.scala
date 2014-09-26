@@ -1,6 +1,7 @@
 package com.nidhoggr
 
-import akka.actor.Actor
+import akka.actor.{Props, Actor}
+import akka.pattern.ask
 import spray.http.MediaTypes.`application/json`
 import spray.routing._
 import spray.json._
@@ -8,6 +9,8 @@ import spray.json.DefaultJsonProtocol._
 import java.io.File
 
 class NidhoggrActor extends Actor with HttpService {
+  import MrcSplitWorker._
+
   val myRoute =
     path("") {
       get {
@@ -29,6 +32,14 @@ class NidhoggrActor extends Actor with HttpService {
             }
             Map(kvs:_*).toJson.prettyPrint
           }
+        }
+      }
+    } ~
+    path("mrcbin" / "pick") {
+      post {
+        formFields("mrcfile") { (data) =>
+          val worker = actorRefFactory.actorOf(Props[MrcSplitWorker])
+          complete(worker.ask(SplitMrc(data)).mapTo[MrcSplitOk])
         }
       }
     }

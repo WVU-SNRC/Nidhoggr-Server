@@ -1,14 +1,15 @@
 package com.nidhoggr
 
-import akka.actor.{ActorLogging, Actor}
+import com.nidhoggr.NidhoggrPipeline.{PipelineResult, PipelineMsg, PipelineFunction}
 
 object NidhoggrPipeline {
-  case class Tracker(cell: String, seed: Array[Array[Boolean]])
+  type Task = (String, String)
+  type Image = List[List[Int]]
+  type PipelineMsg = (Option[(Image, Image)], Task)
+  type PipelineFunction = PipelineMsg => PipelineMsg
+  type PipelineResult = (Option[NidhoggrPipeline], PipelineMsg)
 }
 
-class NidhoggrPipeline extends Actor with ActorLogging {
-  override def receive = {
-    case _ =>
-      log.info("Not implemented")
-  }
+abstract class NidhoggrPipeline(pipe: List[PipelineFunction]) {
+  def apply(msg: PipelineMsg): PipelineResult
 }

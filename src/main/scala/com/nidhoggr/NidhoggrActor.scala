@@ -61,10 +61,7 @@ class NidhoggrActor extends Actor with HttpService {
             //TODO: Return queue status
             actorRefFactory.actorOf(Props[NidhoggrPipeline]) ! new Tracker(
               cell,
-              trace.parseJson.convertTo[Array[Array[Int]]].map(_.map{
-                case 0 => false
-                case _ => true
-              })
+              trace.parseJson.convertTo[Array[Array[Int]]]
             )
             complete(HttpResponse(202, "Accepted"))
         }

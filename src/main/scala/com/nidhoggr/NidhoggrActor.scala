@@ -3,7 +3,7 @@ package com.nidhoggr
 import java.io.{File, FileInputStream}
 
 import akka.actor.{Actor, Props}
-import com.nidhoggr.NidhoggrPipeline.Tracker
+import com.nidhoggr.NidhoggrWorkLeader.NewWork
 import spray.http.HttpResponse
 import spray.http.MediaTypes.{`application/json`, `image/png`}
 import spray.json.DefaultJsonProtocol._
@@ -11,6 +11,8 @@ import spray.json._
 import spray.routing._
 
 class NidhoggrActor extends Actor with HttpService {
+  val workLeader = actorRefFactory.actorOf(Props[NidhoggrWorkLeader])
+
   val myRoute =
     path("") {
       get {
@@ -58,11 +60,8 @@ class NidhoggrActor extends Actor with HttpService {
       post {
         formFields("cell", "trace"){
           (cell, trace) =>
-            //TODO: Return queue status
-            actorRefFactory.actorOf(Props[NidhoggrPipeline]) ! new Tracker(
-              cell,
-              trace.parseJson.convertTo[Array[Array[Int]]]
-            )
+            //val cSplit = cell.split("/", 2)
+            //workLeader ! NewWork((None, (Some((trace.parseJson.convertTo[Array[Array[Int]]], ))), Some(cSplit(0), cSplit(1)))))
             complete(HttpResponse(202, "Accepted"))
         }
       }

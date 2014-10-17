@@ -33,15 +33,15 @@ object NidhoggrPipeline {
   }
 
   type Task = (String, String) //Why is this Strings?
-  type Image = List[List[Int]]
-  type PipelineMsg = (Option[(Image, Image)], Task)
+  type Image = Array[Array[Int]]
+  type PipelineMsg = (Option[(Image, Image)], Option[Task])
   type PipelineFunction = PipelineMsg => PipelineMsg
   type PipelineResult = (Option[NidhoggrPipeline], PipelineMsg)
 }
 
 
 
-class NidhoggrPipeline private (pipe: List[PipelineFunction]) {
+class NidhoggrPipeline (pipe: List[PipelineFunction]) {
   def apply(msg: PipelineMsg): PipelineResult = try{
     pipe match {
       case (p::ps) => (Some(new NidhoggrPipeline(ps)),p(msg))
@@ -54,4 +54,21 @@ class NidhoggrPipeline private (pipe: List[PipelineFunction]) {
         case e:AccuracyBelowThresholdException => ???  //TODO put T back on the stack
       }
   }
+}
+
+object AxonPipeline {
+  def apply() = {
+    val functions = List(expandInput(_),edgeDetection(_),axonOptimization(_),earthMoversDistance(_))
+    new NidhoggrPipeline(functions)
+  }
+
+  //TODO all of those down there
+
+  def expandInput(msg: PipelineMsg): PipelineMsg = ???
+
+  def edgeDetection(msg: PipelineMsg): PipelineMsg = ???
+
+  def axonOptimization(msg: PipelineMsg): PipelineMsg = ???
+
+  def earthMoversDistance(msg: PipelineMsg): PipelineMsg = ???
 }

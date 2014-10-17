@@ -2,6 +2,8 @@ package com.nidhoggr
 
 import com.nidhoggr.NidhoggrPipeline.{PipelineResult, PipelineMsg, PipelineFunction}
 
+class AccuracyBelowThresholdException(msg:String) extends RuntimeException
+
 object NidhoggrPipeline {
 
   def apply():NidhoggrPipeline = {
@@ -10,13 +12,25 @@ object NidhoggrPipeline {
 
   //TODO all of those down there
 
+  def normalize(msg:PipelineMsg): PipelineMsg = ???
+
   def expandInput(msg: PipelineMsg): PipelineMsg = ???
 
   def edgeDetection(msg: PipelineMsg): PipelineMsg = ???
 
   def axonOptimization(msg: PipelineMsg): PipelineMsg = ???
 
-  def earthMoversDistance(msg: PipelineMsg): PipelineMsg = ???
+  def earthMoversDistance(msg: PipelineMsg): PipelineMsg = {
+    def measure(msg: PipelineMsg): Double = {
+      val P = msg._1.get._1
+      val IsubP = (for (i <- List.range(0, P.length)) yield i).map(a=> (for (j <- List.range(0, P(0).length)) yield j).map(b=>(a,b)))
+      val IsubQ = List((0,0)) //TODO Complicate task by adding a reference to the producing countour image
+      val J = IsubP.zip(IsubQ)
+    }
+    val x = measure(normalize(msg))
+    if (x > ???) msg
+    else throw new AccuracyBelowThresholdException("Below Accuracy Threshold")
+  }
 
   type Task = (String, String) //Why is this Strings?
   type Image = List[List[Int]]
@@ -25,7 +39,7 @@ object NidhoggrPipeline {
   type PipelineResult = (Option[NidhoggrPipeline], PipelineMsg)
 }
 
-class AccuracyBelowThresholdException(msg:String) extends RuntimeException
+
 
 class NidhoggrPipeline private (pipe: List[PipelineFunction]) {
   def apply(msg: PipelineMsg): PipelineResult = try{

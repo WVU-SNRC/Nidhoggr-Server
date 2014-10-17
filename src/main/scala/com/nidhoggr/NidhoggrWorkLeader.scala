@@ -1,14 +1,14 @@
 package com.nidhoggr
 
-import akka.actor.{Props, Actor}
+import akka.actor.{Actor, Props}
 import akka.routing.{ActorRefRoutee, BroadcastRoutingLogic, Router}
-import com.nidhoggr.NidhoggrPipeline.PipelineMsg
+import com.nidhoggr.NidhoggrPipeline.{PipelineMsg, PipelineResult}
 import com.nidhoggr.NidhoggrWorkLeader._
 
 import scala.collection.mutable
 
 class NidhoggrWorkLeader extends Actor {
-  val taskQueue = new mutable.Queue[PipelineMsg]()
+  val taskQueue = new mutable.Queue[PipelineResult]()
   val router = Router(BroadcastRoutingLogic(), Vector.fill(5){
     ActorRefRoutee(context.actorOf(Props[NidhoggrWorker]))
   })
@@ -27,14 +27,18 @@ class NidhoggrWorkLeader extends Actor {
       } else {
         sender ! NoWork
       }
+    case WorkFailed(e) => ???
   }
 }
 
 
 object NidhoggrWorkLeader {
-  case class NewWork(task: PipelineMsg)
-  case class WorkOrder(task: PipelineMsg)
+  case class NewWork(task: PipelineResult)
+  case class WorkOrder(task: PipelineResult)
+  case class WorkFailed(e: Exception)
+  case class WorkResult(res: PipelineMsg)
   case object GetWork
   case object WorkReady
   case object NoWork
+  case object WorkAck
 }

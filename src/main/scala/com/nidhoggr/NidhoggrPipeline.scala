@@ -4,15 +4,15 @@ import com.nidhoggr.NidhoggrPipeline.{PipelineResult, PipelineMsg, PipelineFunct
 
 object NidhoggrPipeline {
   type Task = (String, String) //Why is this Strings?
-  type Image = List[List[Int]]
-  type PipelineMsg = (Option[(Image, Image)], Task)
+  type Image = Array[Array[Int]]
+  type PipelineMsg = (Option[(Image, Image)], Option[Task])
   type PipelineFunction = PipelineMsg => PipelineMsg
   type PipelineResult = (Option[NidhoggrPipeline], PipelineMsg)
 }
 
 class AccuracyBelowThresholdException(msg:String) extends RuntimeException
 
-class NidhoggrPipeline private (pipe: List[PipelineFunction]) {
+class NidhoggrPipeline (pipe: List[PipelineFunction]) {
   def apply(msg: PipelineMsg): PipelineResult = try{
     pipe match {
       case (p::ps) => (Some(new NidhoggrPipeline(ps)),p(msg))
@@ -27,7 +27,7 @@ class NidhoggrPipeline private (pipe: List[PipelineFunction]) {
   }
 }
 
-object AxonPipeline extends NidhoggrPipeline{
+object AxonPipeline {
   def apply() = {
     val functions = List(expandInput(_),edgeDetection(_),axonOptimization(_),earthMoversDistance(_))
     new NidhoggrPipeline(functions)

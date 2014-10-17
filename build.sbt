@@ -18,7 +18,8 @@ libraryDependencies ++= Seq(
   "io.spray" % "spray-json_2.10" % "1.3.0",
   "io.spray" % "spray-routing_2.10" % "1.3.1",
   "io.spray" % "spray-http_2.10" % "1.3.1",
-  "com.typesafe.akka" % "akka-actor_2.10" % "2.4-SNAPSHOT"
+  "com.typesafe.akka" % "akka-actor_2.10" % "2.4-SNAPSHOT",
+  "com.twelvemonkeys.imageio" % "imageio-tiff" % "3.0-rc7"
 )
 
 shellPrompt in ThisBuild := { state => "sbt:" + Project.extract(state).currentRef.project + "> "}

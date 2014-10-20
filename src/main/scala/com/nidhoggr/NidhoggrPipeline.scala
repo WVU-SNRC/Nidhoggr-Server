@@ -1,6 +1,6 @@
 package com.nidhoggr
 
-import com.nidhoggr.NidhoggrPipeline.{PipelineResult, PipelineMsg, PipelineFunction}
+import com.nidhoggr.NidhoggrPipeline.{PipelineResult, PipelineMsg, PipelineFunction, Task}
 
 object NidhoggrPipeline {
 
@@ -25,21 +25,14 @@ object NidhoggrPipeline {
   type PipelineResult = (Option[NidhoggrPipeline], PipelineMsg)
 }
 
-class AccuracyBelowThresholdException(msg:String) extends RuntimeException
+case class AccuracyBelowThresholdException(task: Task) extends RuntimeException
 
 class NidhoggrPipeline (pipe: List[PipelineFunction]) {
-  def apply(msg: PipelineMsg): PipelineResult = try{
+  def apply(msg: PipelineMsg): PipelineResult =
     pipe match {
-      case (p::ps) => (Some(new NidhoggrPipeline(ps)),p(msg))
       case (p::Nil)=> (None,p(msg))
+      case (p::ps) => (Some(new NidhoggrPipeline(ps)),p(msg))
     }
-  }catch{
-    case e: AccuracyBelowThresholdException => try{
-        ???   //TODO try to expand the uh field o' view
-      }catch{
-        case e:AccuracyBelowThresholdException => ???  //TODO put T back on the stack
-      }
-  }
 }
 
 object AxonPipeline {

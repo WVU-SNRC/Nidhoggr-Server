@@ -2,7 +2,7 @@ package com.nidhoggr
 
 import akka.actor.{Actor, ActorRef, Props, Terminated}
 import akka.routing.{ActorRefRoutee, BroadcastRoutingLogic, Router}
-import com.nidhoggr.NidhoggrPipeline.{Coordinate, Image, PipelineMsg, Task}
+import com.nidhoggr.NidhoggrPipeline._
 import com.nidhoggr.NidhoggrWorkLeader._
 
 import scala.collection.mutable
@@ -51,7 +51,7 @@ class NidhoggrWorkLeader extends Actor {
 
 
 object NidhoggrWorkLeader {
-  type NewTask = (Image, Coordinate, Task)
+  type NewTask = (Trace, Task)
   case class NewWork(task: NewTask)
   case class WorkOrder(task: NewTask)
   case class WorkFailed(e: Exception, task: Task)

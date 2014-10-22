@@ -1,10 +1,12 @@
 package com.nidhoggr
 
 import com.nidhoggr.NidhoggrPipeline.{PipelineResult, PipelineMsg, PipelineFunction, Task}
+import scala.language.implicitConversions
 
 case class AccuracyBelowThresholdException(task: Task) extends RuntimeException
 
 object NidhoggrPipeline {
+  implicit def Image2Trace(img: Image) = Trace(img, None)
 
   def apply():NidhoggrPipeline = {
     new NidhoggrPipeline(List(expandInput(_), edgeDetection(_), axonOptimization(_), binSimilarityDistance(_)))
@@ -14,30 +16,23 @@ object NidhoggrPipeline {
 
   def normalize(msg:PipelineMsg): PipelineMsg = {
     def normalizer(img:Image) = {
-      val sum = img.flatten.foldLeft(0.0)(_+_)
-      img.map(_.map(_/sum))
+      val sum = img.pixels.foldLeft(0.0)(_+_)
+      Image(img.dimensions, img.pixels.map(_/sum))
     }
-
-    (Some(((normalizer(msg._1.get._1._1), None),normalizer(msg._1.get._2))),msg._2)
+    PipelineMsg(msg.input.map((input) => (Trace(normalizer(input._1.image), input._1.coords), input._2)), msg.task)
   }
 
   def expandInput(msg: PipelineMsg): PipelineMsg = {
-    val expanded = for(
-      input <- msg._1;
-      coords <- input._1._2;
-    ) yield {
-      val width = input._2.size
-      val height = input._2(0).size
-      for(y <- 0 to height) yield {
-        if(y < coords._2) {
-          Vector.fill(width)(0).toArray
-        }
-        else {
-          Vector.fill(coords._1)(0).toArray ++ input._1._1(y).map(_.toInt) ++ Vector.fill(width - (coords._1 + input._1._1(y).size))(0).toArray
-        }
+      val res = for(
+        input <- msg.input;
+        coords <- input._1.coords;
+        task <- msg.task
+      ) yield {
+        val h = Vector.fill(input._2.pixels.size - (coords._1 + input._1.image.dimensions._1))(0.0d) ++ input._1.image.pixels
+        val expanded: Trace = Image(input._2.dimensions, (h ++ Vector.fill(input._2.pixels.size - h.size)(0.0d)).toArray)
+        PipelineMsg(expanded, input._2, task)
       }
-    }
-    ???
+    res.getOrElse(msg)
   }
 
   def edgeDetection(msg: PipelineMsg): PipelineMsg = ???
@@ -63,13 +58,18 @@ object NidhoggrPipeline {
     ???
   }
 
-  type Task = (String, String)
-  type Trace = (Image, Option[Coordinate])
-  type Image = Array[Array[Double]]
-  type PipelineMsg = (Option[(Trace, Image)], Option[Task])
-  type PipelineFunction = PipelineMsg => PipelineMsg
+  case class Task(cell: String, file: String)
+  case class Trace(image: Image, coords: Option[Coordinate])
+  case class Image(dimensions: (Int, Int), pixels: Array[Double])
+  case class PipelineMsg(input: Option[(Trace, Image)], task: Option[Task])
+  object PipelineMsg {
+    def apply(trace: Trace, image: Image, task: Task): PipelineMsg = {
+      PipelineMsg(Some(trace, image), Some(task))
+    }
+  }
   type PipelineResult = (Option[NidhoggrPipeline], PipelineMsg)
   type Coordinate = (Int, Int)
+  type PipelineFunction = PipelineMsg => PipelineMsg
 }
 
 class NidhoggrPipeline (pipe: List[PipelineFunction]) {

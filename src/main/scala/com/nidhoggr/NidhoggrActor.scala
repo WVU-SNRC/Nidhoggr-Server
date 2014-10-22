@@ -3,6 +3,7 @@ package com.nidhoggr
 import java.io.{File, FileInputStream}
 
 import akka.actor.{Actor, Props}
+import com.nidhoggr.NidhoggrPipeline.{Task, Image, Trace}
 import com.nidhoggr.NidhoggrWorkLeader.NewWork
 import spray.http.HttpResponse
 import spray.http.MediaTypes.{`application/json`, `image/png`}
@@ -66,7 +67,8 @@ class NidhoggrActor extends Actor with HttpService {
             if(f.getCanonicalPath.substring(0, root.length) != root)
               complete(HttpResponse(403, "Negative"))
             else {
-              workLeader ! NewWork((cell.parseJson.convertTo[Array[Array[Double]]], coords.parseJson.convertTo[(Int, Int)], (cSplit(0), cSplit(1))))
+              val trace = cell.parseJson.convertTo[Array[Array[Double]]]
+              workLeader ! NewWork((Trace(Image((trace.size, trace(0).size), trace.flatten), Some(coords.parseJson.convertTo[(Int, Int)])), Task(cSplit(0), cSplit(1))))
               complete(HttpResponse(202, "Accepted"))
             }
         }

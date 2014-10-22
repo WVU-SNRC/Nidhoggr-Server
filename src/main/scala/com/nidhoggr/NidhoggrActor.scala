@@ -4,7 +4,6 @@ import java.io.{File, FileInputStream}
 
 import akka.actor.{Actor, Props}
 import com.nidhoggr.NidhoggrWorkLeader.NewWork
-import com.sksamuel.scrimage.io.TiffReader
 import spray.http.HttpResponse
 import spray.http.MediaTypes.{`application/json`, `image/png`}
 import spray.json.DefaultJsonProtocol._
@@ -59,15 +58,15 @@ class NidhoggrActor extends Actor with HttpService {
     } ~
     path("trace" / "submit") {
       post {
-        formFields("cell", "trace"){
-          (cell: String, trace: String) =>
+        formFields("cell", "coords", "trace"){
+          (cell: String, coords: String, trace: String) =>
             val cSplit = cell.split("/", 2)
             val root = context.system.settings.config.getString("nidhoggr.mrcdir")
             val f = new File(root, cell)
             if(f.getCanonicalPath.substring(0, root.length) != root)
               complete(HttpResponse(403, "Negative"))
             else {
-              workLeader ! NewWork((cell.parseJson.convertTo[Array[Array[Int]]], (cSplit(0), cSplit(1))))
+              workLeader ! NewWork((cell.parseJson.convertTo[Array[Array[Double]]], coords.parseJson.convertTo[(Int, Int)], (cSplit(0), cSplit(1))))
               complete(HttpResponse(202, "Accepted"))
             }
         }

@@ -5,11 +5,13 @@ import scala.language.implicitConversions
 
 case class AccuracyBelowThresholdException(task: Task) extends RuntimeException
 
+
+
 object NidhoggrPipeline {
   implicit def Image2Trace(img: Image) = Trace(img, None)
 
   def apply():NidhoggrPipeline = {
-    new NidhoggrPipeline(List(expandInput(_), edgeDetection(_), axonOptimization(_), binSimilarityDistance(_)))
+    new NidhoggrPipeline(List(expandInput(_), edgeDetection(_), axonOptimization(_), similarityCheck(_)))
   }
 
   //TODO all of those down there
@@ -39,23 +41,14 @@ object NidhoggrPipeline {
 
   def axonOptimization(msg: PipelineMsg): PipelineMsg = ???
 
-  def binSimilarityDistance(msg: PipelineMsg): PipelineMsg = {
-//    def measure(ref:Image,obs:Image):Double = {
-//      val Ip = (for (i <- List.range(0, ref.length)) yield i).map(a=> (for (j <- List.range(0, ref(0).length)) yield j).map(b=>(a,b))).flatten
-//      val Iq = (for (i <- List.range(0, obs.length)) yield i).map(a=> (for (j <- List.range(0, obs(0).length)) yield j).map(b=>(a,b))).flatten
-//      val J = for {p <- Ip;q<-Iq} yield(p,q)
-//      type Index = ((Int,Int),(Int,Int))
-//      def computeSimilarityMatrix(indexer:List[Index],ref:Image,obs:Image):List[Double] = indexer match{ //TODO discuss whether we want to replace this with flow for emd
-//        case ((ref1,ref2),(obs1,obs2))::is => List((ref(ref1)(ref2) - obs(obs1)(obs2))) ++ computeSimilarityMatrix(is,ref,obs)
-//        case Nil => Nil
-//      }
-//      ???
-//    }
-//    val normed = normalize(msg)
-//    val x = measure(???,???) // or just make sure it comes first in the pipeline
-//    if (x > ???) msg
-//    else throw new AccuracyBelowThresholdException(msg._2.get)
-    ???
+  def similarityCheck(msg: PipelineMsg): PipelineMsg = {
+    def matrixGen(ref:Array[Double],obs:Array[Double]):Array[Double] = {
+      val Iref = for(i<-0 to ref.length) yield i
+      val Iobs = for(i<-0 to obs.length) yield i
+      val J = for {p<-Iref;q<-Iobs} yield (p,q)
+      J.par.map {case (a,b) => ???}.toArray
+    }
+
   }
 
   case class Task(cell: String, file: String)
@@ -70,6 +63,22 @@ object NidhoggrPipeline {
   type PipelineResult = (Option[NidhoggrPipeline], PipelineMsg)
   type Coordinate = (Int, Int)
   type PipelineFunction = PipelineMsg => PipelineMsg
+}
+
+class ImageVirtualAccessor(data:NidhoggrPipeline.Image){
+  def pix = data.pixels
+  def m = data.dimensions._1
+  def n = data.dimensions._2
+  def length = data.pixels.length
+  def get(Row:Int)(Col:Int):Double = {
+    pix.slice(Row*n,Row*n+n)(Col)
+  }
+
+  def set(Row:Int)(Col:Int)(Pix:Double):ImageVirtualAccessor = {
+    val index = Col+(Row*n)
+    new ImageVirtualAccessor(new NidhoggrPipeline.Image(data.dimensions,pix.updated(index,Pix)))
+  }
+
 }
 
 class NidhoggrPipeline (pipe: List[PipelineFunction]) {

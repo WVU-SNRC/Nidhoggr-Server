@@ -20,7 +20,7 @@ libraryDependencies ++= Seq(
   "io.spray" % "spray-http_2.10" % "1.3.1",
   "com.typesafe.akka" % "akka-actor_2.10" % "2.4-SNAPSHOT",
   "com.sksamuel.scrimage" % "scrimage_2.10" % "1.4.2",
-  "com.sksamuel.scrimage" % "scrimage-core_2.10" % "1.4.2",
+  "com.sksamuel.scrimage" % "scrimage-core_2.10" % "1.4.2" withSources(),
   "com.sksamuel.scrimage" % "scrimage-filters_2.10" % "1.4.2"
 )
 

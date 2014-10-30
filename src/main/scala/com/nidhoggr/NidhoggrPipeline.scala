@@ -1,16 +1,17 @@
 package com.nidhoggr
 
-import com.nidhoggr.NidhoggrPipeline.{PipelineResult, PipelineMsg, PipelineFunction, Task}
+import com.nidhoggr.NidhoggrPipeline.{PipelineResult, Image, PipelineMsg, PipelineFunction, Task}
 import scala.language.implicitConversions
+import com.sksamuel.scrimage.filter.EdgeFilter
+import com.sksamuel.scrimage.{Image => SKImage}
 
 case class AccuracyBelowThresholdException(task: Task) extends RuntimeException
 
 
 
 object NidhoggrPipeline {
-  implicit def Image2Trace(img: Image) = Trace(img, None)
 
-  def apply():NidhoggrPipeline = {
+  def apply(): NidhoggrPipeline = {
     new NidhoggrPipeline(List(expandInput(_), edgeDetection(_), axonOptimization(_), similarityCheck(_)))
   }
 
@@ -37,7 +38,18 @@ object NidhoggrPipeline {
     res.getOrElse(msg)
   }
 
-  def edgeDetection(msg: PipelineMsg): PipelineMsg = ???
+  def edgeDetection(msg: PipelineMsg): PipelineMsg = {
+    val res = for(
+      input <- msg.input;
+      task <- msg.task
+    ) yield {
+      val image = input._2
+      val trace = input._1
+      val raster = image.filter(EdgeFilter)
+      PipelineMsg(trace, raster, task)
+    }
+    res.getOrElse(msg)
+  }
 
   def axonOptimization(msg: PipelineMsg): PipelineMsg = ???
 
@@ -48,12 +60,17 @@ object NidhoggrPipeline {
       val J = for {p<-Iref;q<-Iobs} yield (p,q)
       J.par.map {case (a,b) => ???}.toArray
     }
-
+    ???
   }
 
   case class Task(cell: String, file: String)
   case class Trace(image: Image, coords: Option[Coordinate])
   case class Image(dimensions: (Int, Int), pixels: Array[Double])
+  object Image {
+    implicit def Image2Trace(img: Image): Trace = Trace(img, None)
+    implicit def SKImage2Image(img: SKImage): Image = Image((img.width, img.height), img.pixels.map(_.toDouble))
+    implicit def Image2SKImage(img: Image): SKImage = SKImage(img.dimensions._1, img.dimensions._2, img.pixels.map(_.toInt))
+  }
   case class PipelineMsg(input: Option[(Trace, Image)], task: Option[Task])
   object PipelineMsg {
     def apply(trace: Trace, image: Image, task: Task): PipelineMsg = {
@@ -66,10 +83,10 @@ object NidhoggrPipeline {
 }
 
 class ImageVirtualAccessor(data:NidhoggrPipeline.Image){
-  def pix = data.pixels
-  def m = data.dimensions._1
-  def n = data.dimensions._2
-  def length = data.pixels.length
+  lazy val pix = data.pixels
+  lazy val m = data.dimensions._1
+  lazy val n = data.dimensions._2
+  lazy val length = data.pixels.length
   def get(Row:Int)(Col:Int):Double = {
     pix.slice(Row*n,Row*n+n)(Col)
   }

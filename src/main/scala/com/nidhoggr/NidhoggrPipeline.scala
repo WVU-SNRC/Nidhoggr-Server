@@ -38,8 +38,8 @@ object NidhoggrPipeline {
     res.getOrElse(msg)
   }
 
-  def edgeDetection(msg: PipelineMsg): PipelineMsg = {
-    val res = for(
+  def edgeDetectionSK(msg: PipelineMsg): PipelineMsg = {
+    val res = for (
       input <- msg.input;
       task <- msg.task
     ) yield {
@@ -51,6 +51,29 @@ object NidhoggrPipeline {
     res.getOrElse(msg)
   }
 
+  def edgeDetection(msg: PipelineMsg) = {
+    val sobelX = Array(Array(-1.0,0.0,1.0),Array(-2.0,0.0,2.0),Array(-1.0,0.0,1.0))
+    val sobelY = Array(Array(1.0,2.0,1.0),Array(0.0,0.0,0.0),Array(-1.0,-2.0,-1.0))
+    def convulution(img: Image):Image ={
+      def iter(img:ImageVirtualAccessor):Image = {
+        val xIndices = for (x<- 1 until img.n-1) yield x
+        val yIndices = for (y<- 1 until img.m-1) yield y
+        val indices = for{p<-xIndices;q<-yIndices} yield(p,q)
+        Image((img.m-2,img.n-1),indices.par.map{case(a,b)=> {
+          val pixelX = (sobelX(0)(0)*img.get(a-1)(b-1))+(sobelX(0)(1)*img.get(a)(b-1))+
+            (sobelX(1)(0)*img.get(a-1)(b))+(sobelX(1)(1)*img.get(a)(b))+
+            (sobelX(2)(0)*img.get(a-1)(b+1))+(sobelX(2)(1)*img.get(a)(b+1))
+          val pixelY = (sobelY(0)(0)*img.get(a-1)(b-1))+(sobelY(0)(1)*img.get(a)(b-1))+
+            (sobelY(1)(0)*img.get(a-1)(b))+(sobelY(1)(1)*img.get(a)(b))+
+            (sobelY(2)(0)*img.get(a-1)(b+1))+(sobelY(2)(1)*img.get(a)(b+1))
+          Math.ceil(Math.sqrt(Math.pow(pixelX,2)+Math.pow(pixelY,2)))
+        }}.toArray)
+      }
+      iter(new ImageVirtualAccessor(img))
+    }
+    PipelineMsg(msg.input.get._1,convulution(msg.input.get._2),msg.task.get)
+  }
+
   def axonOptimization(msg: PipelineMsg): PipelineMsg = ???
 
   def similarityCheck(msg: PipelineMsg): PipelineMsg = {
@@ -59,6 +82,7 @@ object NidhoggrPipeline {
       val Iobs = for(i<-0 to obs.length) yield i
       val J = for {p<-Iref;q<-Iobs} yield (p,q)
       J.par.map {case (a,b) => ???}.toArray
+
     }
     ???
   }

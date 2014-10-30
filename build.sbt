@@ -14,14 +14,14 @@ fork in run := true
 classpathTypes += "maven-plugin"
 
 libraryDependencies ++= Seq(
-  "io.spray" % "spray-can_2.10" % "1.3.1",
-  "io.spray" % "spray-json_2.10" % "1.3.0",
-  "io.spray" % "spray-routing_2.10" % "1.3.1",
-  "io.spray" % "spray-http_2.10" % "1.3.1",
-  "com.typesafe.akka" % "akka-actor_2.10" % "2.4-SNAPSHOT",
-  "com.sksamuel.scrimage" % "scrimage_2.10" % "1.4.2",
-  "com.sksamuel.scrimage" % "scrimage-core_2.10" % "1.4.2" withSources(),
-  "com.sksamuel.scrimage" % "scrimage-filters_2.10" % "1.4.2"
+  "io.spray" %% "spray-can" % "1.3.1",
+  "io.spray" %% "spray-json" % "1.3.0",
+  "io.spray" %% "spray-routing" % "1.3.1",
+  "io.spray" %% "spray-http" % "1.3.1",
+  "com.typesafe.akka" %% "akka-actor" % "2.4-SNAPSHOT",
+  "com.sksamuel.scrimage" %% "scrimage" % "1.4.2",
+  "com.sksamuel.scrimage" %% "scrimage-core" % "1.4.2" withSources(),
+  "com.sksamuel.scrimage" %% "scrimage-filters" % "1.4.2"
 )
 
 shellPrompt in ThisBuild := { state => "sbt:" + Project.extract(state).currentRef.project + "> "}

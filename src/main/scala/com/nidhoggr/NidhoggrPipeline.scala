@@ -10,7 +10,7 @@ case class AccuracyBelowThresholdException(task: Task) extends RuntimeException
 
 
 object NidhoggrPipeline {
-  implicit def Image2Trace(img: Image) = Trace(img, None)
+  implicit def Trace2Image(tr:Trace) = tr.image
 
   def apply():NidhoggrPipeline = {
     new NidhoggrPipeline(List(expandInput(_), edgeDetection(_), axonOptimization(_), similarityCheck(_)))

@@ -21,7 +21,8 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-actor" % "2.4-SNAPSHOT",
   "com.sksamuel.scrimage" %% "scrimage" % "1.4.2",
   "com.sksamuel.scrimage" %% "scrimage-core" % "1.4.2" withSources(),
-  "com.sksamuel.scrimage" %% "scrimage-filters" % "1.4.2"
+  "com.sksamuel.scrimage" %% "scrimage-filters" % "1.4.2",
+  "org.scalatest" %% "scalatest" % "2.2.1" % "test"
 )
 
 shellPrompt in ThisBuild := { state => "sbt:" + Project.extract(state).currentRef.project + "> "}

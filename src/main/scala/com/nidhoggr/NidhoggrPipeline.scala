@@ -21,8 +21,13 @@ object NidhoggrPipeline {
 
   def normalize(msg:PipelineMsg): PipelineMsg = {
     def normalizer(img:Image):Image = {
-      val sum = img.pixels.foldLeft(0.0)(_+_)
-      Image(img.dimensions, img.pixels.map(_/sum))
+      val min = img.pixels.min
+      val max = img.pixels.max
+      //Magic numbers below are actually integer representations of Tiff values for black and white.
+      //First byte is Alpha, followed by RGB
+      //-16777216 produces 255 0 0 0 as bytes, meaning black
+      //-1 produces 255 255 255 255, meaning white
+      Image(img.dimensions, img.pixels.map((pix: Double) => (pix - min) * ((-1 - -16777216) / (max - min)) + -16777216))
     }
     PipelineMsg(msg.input.map((input) => (Trace(normalizer(input._1.image), input._1.coords), Image2Trace(normalizer(input._2.image)))), msg.task)
   }
@@ -62,9 +67,10 @@ object NidhoggrPipeline {
       val product = (p._1 * q._1) + (p._2 * q._2)
       product / (math.sqrt(math.pow(p._1, 2) + math.pow(p._2, 2)) * math.sqrt(math.pow(q._1, 2) + math.pow(q._2, 2)))
     }
-    
+
     val res = for (
-      input <- msg.input
+      input <- msg.input;
+      task <- msg.task
     ) yield {
       @tailrec
       def iterContour(contour: Array[Coordinate], energy: Int): Array[Coordinate] = {
@@ -73,7 +79,7 @@ object NidhoggrPipeline {
           val right = contour(i + 1)
           math.round((1 * (distance(left, p) + distance(p, right))) + (1 * (angle(left, p) + angle(p, right))) + (1 * input._2.image.get(contour(i)._1)(contour(i)._2))).toInt
         }
-        
+
         @tailrec
         def iterPoint(i: Int)(p: Coordinate, e: Int): (Coordinate, Int) = {
           val possible: List[(Coordinate, Int)] = List(
@@ -87,23 +93,37 @@ object NidhoggrPipeline {
             (p._1 - 1, p._2 - 1)
           ).map((c: Coordinate) => (c, pointEnergy(i, c))).filter(_._2 < e).sortBy(_._2)
           possible match {
-            case n::ns => iterPoint(i)(n._1, n._2)
+            case n :: ns => iterPoint(i)(n._1, n._2)
             case Nil => (p, e)
           }
         }
 
 
-        val pointEnergies = for(i <- 0 until contour.size) yield {
+        val pointEnergies = for (i <- 0 until contour.size) yield {
           iterPoint(i)(contour(i), pointEnergy(i, contour(i)))
         }
         val E: Int = pointEnergies.map(_._2).foldLeft(0)((a: Int, b: Int) => a + b)
-        if(E < energy)
+        if (E < energy)
           iterContour(pointEnergies.map(_._1).toArray, E)
         else
           contour
       }
+      val contour = input._1.image.pixels.zipWithIndex.filter(_._1 > 0).filter(_._2 % 2 == 0).map{ case (value: Double, index: Int) =>
+        val row = index % input._1.image.dimensions._1
+        val col = (row * input._1.image.dimensions._1) % input._1.image.dimensions._2
+        (row, col)
+      }
+
+      def contour2Image(contour: Array[Coordinate]): Image = {
+        var img: ImageVirtualAccessor = Image((input._1.image.m, input._1.image.n), Vector.fill(input._1.image.m, input._1.image.n)(0d).flatten.toArray)
+        for((m, n) <- contour) {
+          img = img.set(m)(n)(1d)
+        }
+        Image((input._1.image.m, input._1.image.n), img.pix)
+      }
+      PipelineMsg(input._1, contour2Image(iterContour(contour, Int.MaxValue)), task)
     }
-    ???
+    res.get
   }
 
 

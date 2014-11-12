@@ -67,7 +67,7 @@ class NidhoggrActor extends Actor with HttpService {
             if(f.getCanonicalPath.substring(0, root.length) != root)
               complete(HttpResponse(403, "Negative"))
             else {
-              val trace = cell.parseJson.convertTo[Array[Array[Double]]]
+              val trace = cell.parseJson.convertTo[Array[Array[Int]]]
               workLeader ! NewWork((Trace(Image((trace.size, trace(0).size), trace.flatten), Some(coords.parseJson.convertTo[(Int, Int)])), Task(cSplit(0), cSplit(1))))
               complete(HttpResponse(202, "Accepted"))
             }

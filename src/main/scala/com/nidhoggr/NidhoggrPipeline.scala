@@ -2,11 +2,14 @@ package com.nidhoggr
 
 import java.io.File
 
-import com.nidhoggr.NidhoggrPipeline.{PipelineResult, PipelineMsg, PipelineFunction, Task}
+import com.nidhoggr.NidhoggrPipeline._
+import com.sksamuel.scrimage.Image
 import scala.annotation.tailrec
 import scala.language.implicitConversions
-import com.sksamuel.scrimage.filter.EdgeFilter
+import com.sksamuel.scrimage.filter.{InvertFilter, GaussianBlurFilter, EdgeFilter}
 import com.sksamuel.scrimage.{Image => SKImage}
+
+import scala.util.Random
 
 case class AccuracyBelowThresholdException(task: Task) extends RuntimeException
 
@@ -18,7 +21,7 @@ object NidhoggrPipeline {
   import NidhoggrPipeline.Image._
 
   def apply():NidhoggrPipeline = {
-    new NidhoggrPipeline(List(expandInput, normalize, edgeDetection, axonOptimization))
+    new NidhoggrPipeline(List(normalize, gaussianBlur, edgeDetection, axonOptimization))
   }
 
   @tailrec
@@ -47,22 +50,9 @@ object NidhoggrPipeline {
       //First byte is Alpha, followed by RGB
       //-16777216 produces 255 0 0 0 as bytes, meaning black
       //-1 produces 255 255 255 255, meaning white
-      Image(img.dimensions, img.pixels.map((pix: Int) => (pix - min) * ((WHITE - BLACK) / (max - min)) + BLACK))
+      Image(img.dimensions, img.pixels.map((pix: Int) => ((pix - min) * ((WHITE - BLACK) / (max - min))) + BLACK))
     }
-    PipelineMsg(msg.input.map((input) => (Trace(normalizer(input._1.image), input._1.coords), Image2Trace(normalizer(input._2.image)))), msg.task)
-  }
-
-  def expandInput(msg: PipelineMsg): PipelineMsg = {
-      val res = for(
-        input <- msg.input;
-        coords <- input._1.coords;
-        task <- msg.task
-      ) yield {
-        val h = Vector.fill(input._2.image.pixels.size - (coords._1 + input._1.image.dimensions._1))(BLACK) ++ input._1.image.pixels
-        val expanded: Trace = Image(input._2.image.dimensions, (h ++ Vector.fill(input._2.image.pixels.size - h.size)(BLACK)).toArray)
-        PipelineMsg(expanded, input._2, task)
-      }
-    res.getOrElse(msg)
+    PipelineMsg(msg.input.map((input) => (input._1, normalizer(input._2.image))), msg.task)
   }
 
   def edgeDetection(msg: PipelineMsg): PipelineMsg = {
@@ -92,7 +82,7 @@ object NidhoggrPipeline {
     ) yield {
       val image = input._2
       val trace = input._1
-      val raster = Trace(image.image.filter(EdgeFilter), None)
+      val raster = image.image.filter(EdgeFilter)
       PipelineMsg(trace, raster, task)
     }
     res.getOrElse(msg)
@@ -106,7 +96,20 @@ object NidhoggrPipeline {
     ) yield {
       val image = input._2
       val trace = input._1
-      val raster = Trace(image.image.filter(EdgeFilter), None)
+      val raster = image.image.filter(GaussianBlurFilter())
+      PipelineMsg(trace, raster, task)
+    }
+    res.getOrElse(msg)
+  }
+
+  def invertImage(msg: PipelineMsg): PipelineMsg = {
+    val res = for (
+      input <- msg.input;
+      task <- msg.task
+    ) yield {
+      val image = input._2
+      val trace = input._1
+      val raster = image.image.filter(InvertFilter)
       PipelineMsg(trace, raster, task)
     }
     res.getOrElse(msg)
@@ -117,7 +120,7 @@ object NidhoggrPipeline {
       math.sqrt(math.pow(p._1 - q._1, 2) + math.pow(p._2 - q._2, 2))
     }
     def angle(p: Coordinate, q: Coordinate) = {
-      val product = (p._1 * q._1) + (p._2 * q._2)
+      val product: Double = (p._1 * q._1) + (p._2 * q._2)
       product / (math.sqrt(math.pow(p._1, 2) + math.pow(p._2, 2)) * math.sqrt(math.pow(q._1, 2) + math.pow(q._2, 2)))
     }
 
@@ -126,85 +129,54 @@ object NidhoggrPipeline {
       task <- msg.task
     ) yield {
       @tailrec
-      def iterContour(contour: Array[Coordinate], energy: Int): Array[Coordinate] = {
-        println(s"we iterated, energer: $energy")
-        def pointEnergy(i: Int, p: Coordinate): Int = {
-          val left = contour(i - 1)
-          val right = contour(i + 1)
-          math.round((1 * (distance(left, p) + distance(p, right))) + (1 * (angle(left, p) + angle(p, right))) + (1 * input._2.image.get(contour(i)._1)(contour(i)._2))).toInt
+      def iterContour(iter: Int)(contour: Array[Coordinate], energy: Double): Array[Coordinate] = {
+        println(s"Contour energy: $energy")
+        def pointEnergy(i: Int, p: Coordinate): Double = {
+          val left = contour(math.abs((i - 1) % contour.length))
+          val right = contour((i + 1) % contour.length)
+          (0.01 * (distance(left, p) + distance(p, right))) + (0 * math.abs(angle(left, p) + angle(p, right))) + (-10 * input._2.image.nGet(contour(i)._1)(contour(i)._2))
         }
 
         @tailrec
-        def iterPoint(i: Int)(p: Coordinate, e: Int): (Coordinate, Int) = {
-          println(s"Point energy $e")
-          val possible: List[(Coordinate, Int)] = List(
-            (p._1 + 1, p._2 + 1),
-            (p._1 + 1, p._2),
-            (p._1 + 1, p._2 - 1),
-            (p._1, p._2 + 1),
-            (p._1, p._2 - 1),
-            (p._1 - 1, p._2 + 1),
-            (p._1 - 1, p._2),
-            (p._1 - 1, p._2 - 1)
-          ).map((c: Coordinate) => (c, pointEnergy(i, c))).filter(_._2 < e).sortBy(_._2)
+        def iterPoint(i: Int)(p: Coordinate, e: Double): (Coordinate, Double) = {
+          val cords = for (v <- 1 until 2) yield {
+            List(
+              (p._1 + v, p._2 + v),
+              (p._1 + v, p._2),
+              (p._1 + v, p._2 - v),
+              (p._1, p._2 + v),
+              (p._1, p._2 - v),
+              (p._1 - v, p._2 + v),
+              (p._1 - v, p._2),
+              (p._1 - v, p._2 - v)
+            )
+          }
+          val possible = cords.flatten.map((c: Coordinate) => (c, pointEnergy(i, c))).filter(_._2 < e).sortBy(_._2).toList
           possible match {
             case n :: ns => iterPoint(i)(n._1, n._2)
             case Nil => (p, e)
           }
         }
 
-        println(s"size: ${contour.size}")
         val pointEnergies = for (i <- 0 until contour.size) yield {
-          println("Happy loop")
           iterPoint(i)(contour(i), pointEnergy(i, contour(i)))
         }
-        val E: Int = pointEnergies.map(_._2).foldLeft(0)((a: Int, b: Int) => a + b)
+        val E: Double = pointEnergies.map(_._2).foldLeft(0d)((a, b) => a + b)
+        println(s"Next enegry: $E")
         if (E < energy)
-          iterContour(pointEnergies.map(_._1).toArray, E)
+          iterContour(iter + 1)(pointEnergies.map(_._1).toArray, E)
         else
           contour
       }
 
-
-      val contour = input._1.image.pixels.zipWithIndex.filter(_._1 == -1).map{ case (value: Int, index: Int) =>
-        val col = index % input._1.image.dimensions._1
-        val row = index / input._1.image.dimensions._1
-        (col, row)
-      }
-      /*val root = contour.foldLeft(Empty){(n, v) =>
-        val l = contour.filter{p =>
-          val ydiff = math.abs(p._2 - v._2)
-          val xdiff = math.abs(p._1 - v._1)
-          xdiff <= 1 && ydiff <= 1 && p != v
-        }
-        Connected(v, l)
-      }*/
-      val contree = contour.map{v =>
-        val l = contour.filter{p =>
-          val ydiff = math.abs(p._2 - v._2)
-          val xdiff = math.abs(p._1 - v._1)
-          xdiff <= 1 && ydiff <= 1 && p != v
-        }
-        v -> l
-      }.toMap
-
-      def treeIter(t : Map[Coordinate,Array[Coordinate]],acc : Set[Coordinate])   : Seq[Coordinate] = t match{
-        case (v , h::hs)::vs => {
-          val a = acc + v
-          if (! a.contains(h)){
-            v :: treeIter(vs,a)
-          }
-        }
-      }
-
       def contour2Image(contour: Array[Coordinate]): Image = {
-        var img: ImageVirtualAccessor = Image((input._1.image.m, input._1.image.n), Vector.fill(input._1.image.m, input._1.image.n)(BLACK).flatten.toArray)
+        var img: ImageVirtualAccessor = Image((input._2.image.m, input._2.image.n), Vector.fill(input._2.image.m, input._2.image.n)(BLACK).flatten.toArray)
         for((m, n) <- contour) {
-          img = img.set(m)(n)(WHITE)
+          img = img.set(n)(m)(WHITE)
         }
-        Image((input._1.image.m, input._1.image.n), img.pix)
+        Image((input._2.image.m, input._2.image.n), img.pix)
       }
-      PipelineMsg(input._1, contour2Image(iterContour(contour, Int.MaxValue)), task)
+      PipelineMsg(input._1, contour2Image(iterContour(0)(input._1, Int.MaxValue)), task)
     }
     res.get
   }
@@ -220,10 +192,6 @@ object NidhoggrPipeline {
     ???
   }
 
-  trait Node
-  case object Empty extends Node
-  case class Connected(coord: Coordinate, list: Seq[Coordinate]) extends Node
-
   case class Task(cell: String, file: String)
   case class Position (x:Int,y:Int)
   case class Velocity (u:Double,v:Double)
@@ -235,22 +203,11 @@ object NidhoggrPipeline {
     implicit def Image2SKImage(img: Image): SKImage = SKImage(img.dimensions._1, img.dimensions._2, img.pixels)
     implicit def Image2ImageVirtualAccessor(img: Image): ImageVirtualAccessor = new ImageVirtualAccessor(img)
   }
-   case class PipelineMsg(input: Option[(Trace, Trace)], task: Option[Task])
+   case class PipelineMsg(input: Option[(Array[Coordinate], Image)], task: Option[Task])
   object PipelineMsg {
-    def apply(trace: Trace, image: Trace, task: Task): PipelineMsg = {
+    def apply(trace: Array[Coordinate], image: Image, task: Task): PipelineMsg = {
       PipelineMsg(Some(trace, image), Some(task))
     }
-  }
-
-  def getTask(msg: PipelineMsg): Task = {
-    msg.task.get
-  }
-  def getTrace(msg: PipelineMsg): Trace = {
-    msg.input.get._1
-  }
-
-  def getImage(msg: PipelineMsg): Image = {
-    getTrace(msg).image
   }
 
   type PipelineResult = (Option[NidhoggrPipeline], PipelineMsg)
@@ -264,8 +221,17 @@ class ImageVirtualAccessor(data: NidhoggrPipeline.Image){
   lazy val m = data.dimensions._1
   lazy val n = data.dimensions._2
   lazy val length = data.pixels.length
-  def get(Row:Int)(Col:Int): Int = {
+  lazy val normalized = {
+    val min: Double = data.pixels.min
+    val max: Double = data.pixels.max
+    val n = pix.map(p => (p.toDouble - min) / (max - min))
+    n
+  }
+  def get(Row: Int)(Col: Int): Int = {
     pix.slice(Row*n,Row*n+n)(Col)
+  }
+  def nGet(row: Int)(col: Int): Double = {
+    normalized.slice(row*n,row*n+n)(col)
   }
 
   def set(Row: Int)(Col: Int)(Pix: Int): ImageVirtualAccessor = {

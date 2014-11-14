@@ -116,12 +116,14 @@ object NidhoggrPipeline {
   }
 
   def axonOptimization(msg: PipelineMsg): PipelineMsg = {
-    def distance(p: Coordinate, q: Coordinate) = {
+    def dist(p: Coordinate, q: Coordinate) = {
       math.sqrt(math.pow(p._1 - q._1, 2) + math.pow(p._2 - q._2, 2))
     }
-    def angle(p: Coordinate, q: Coordinate) = {
-      val product: Double = (p._1 * q._1) + (p._2 * q._2)
-      product / (math.sqrt(math.pow(p._1, 2) + math.pow(p._2, 2)) * math.sqrt(math.pow(q._1, 2) + math.pow(q._2, 2)))
+    def angle(left: Coordinate, middle: Coordinate, right: Coordinate) = {
+      val ang = math.toDegrees(math.acos((math.pow(dist(middle, left), 2) + math.pow(dist(middle, right), 2) - math.pow(dist(left, right), 2))
+        / (2 * dist(middle, left) * dist(middle, right))))
+      //println(s"suck it will: $ang for point: $left $middle $right")
+      ang
     }
 
     val res = for (
@@ -134,7 +136,7 @@ object NidhoggrPipeline {
         def pointEnergy(i: Int, p: Coordinate): Double = {
           val left = contour(math.abs((i - 1) % contour.length))
           val right = contour((i + 1) % contour.length)
-          (0.01 * (distance(left, p) + distance(p, right))) + (0 * math.abs(angle(left, p) + angle(p, right))) + (-10 * input._2.image.nGet(contour(i)._1)(contour(i)._2))
+          (-1 * (dist(left, p) + dist(p, right))) + (-20 * math.abs(angle(left, p, right))) + (-10 * input._2.image.nGet(contour(i)._1)(contour(i)._2))
         }
 
         @tailrec

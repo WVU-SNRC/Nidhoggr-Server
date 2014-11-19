@@ -3,16 +3,12 @@ package com.nidhoggr
 import java.io.File
 
 import com.nidhoggr.NidhoggrPipeline._
-import com.sksamuel.scrimage.Image
 import scala.annotation.tailrec
 import scala.language.implicitConversions
 import com.sksamuel.scrimage.filter.{InvertFilter, GaussianBlurFilter, EdgeFilter}
 import com.sksamuel.scrimage.{Image => SKImage}
 
-import scala.util.Random
-
 case class AccuracyBelowThresholdException(task: Task) extends RuntimeException
-
 
 
 object NidhoggrPipeline {
@@ -21,7 +17,7 @@ object NidhoggrPipeline {
   import NidhoggrPipeline.Image._
 
   def apply():NidhoggrPipeline = {
-    new NidhoggrPipeline(List(normalize, gaussianBlur, edgeDetection, axonOptimization))
+    new NidhoggrPipeline(List(normalize, centralize, gaussianBlur, edgeDetection, axonOptimization))
   }
 
   @tailrec
@@ -42,8 +38,19 @@ object NidhoggrPipeline {
 
   //TODO all of those down there
 
-  def normalize(msg:PipelineMsg): PipelineMsg = {
-    def normalizer(img:SKImage):Image = {
+  def centralize(msg: PipelineMsg): PipelineMsg = {
+    val res = for(input <- msg.input; task <- msg.task) yield {
+      val p = input._3.head
+      val q = input._3(1)
+      val xoff = p._1 - q._1
+      val yoff = p._2 - q._2
+      PipelineMsg(input._1.map(c => (c._1 - xoff, c._2 - yoff)), input._3.tail, input._2, task)
+    }
+    res.getOrElse(msg)
+  }
+
+  def normalize(msg: PipelineMsg): PipelineMsg = {
+    def normalizer(img: SKImage):Image = {
       val min = img.pixels.min
       val max = img.pixels.max
       //Magic numbers below are actually integer representations of Tiff values for black and white.
@@ -52,7 +59,7 @@ object NidhoggrPipeline {
       //-1 produces 255 255 255 255, meaning white
       Image(img.dimensions, img.pixels.map((pix: Int) => ((pix - min) * ((WHITE - BLACK) / (max - min))) + BLACK))
     }
-    PipelineMsg(msg.input.map((input) => (input._1, normalizer(input._2.image))), msg.task)
+    PipelineMsg(msg.input.map((input) => (input._1, normalizer(input._2.image), input._3)), msg.task)
   }
 
   def edgeDetection(msg: PipelineMsg): PipelineMsg = {
@@ -83,7 +90,7 @@ object NidhoggrPipeline {
       val image = input._2
       val trace = input._1
       val raster = image.image.filter(EdgeFilter)
-      PipelineMsg(trace, raster, task)
+      PipelineMsg(trace, input._3, raster, task)
     }
     res.getOrElse(msg)
   }
@@ -97,7 +104,7 @@ object NidhoggrPipeline {
       val image = input._2
       val trace = input._1
       val raster = image.image.filter(GaussianBlurFilter())
-      PipelineMsg(trace, raster, task)
+      PipelineMsg(trace, input._3, raster, task)
     }
     res.getOrElse(msg)
   }
@@ -110,7 +117,7 @@ object NidhoggrPipeline {
       val image = input._2
       val trace = input._1
       val raster = image.image.filter(InvertFilter)
-      PipelineMsg(trace, raster, task)
+      PipelineMsg(trace, input._3, raster, task)
     }
     res.getOrElse(msg)
   }
@@ -122,8 +129,12 @@ object NidhoggrPipeline {
     def angle(left: Coordinate, middle: Coordinate, right: Coordinate) = {
       val ang = math.toDegrees(math.acos((math.pow(dist(middle, left), 2) + math.pow(dist(middle, right), 2) - math.pow(dist(left, right), 2))
         / (2 * dist(middle, left) * dist(middle, right))))
-      //println(s"suck it will: $ang for point: $left $middle $right")
-      ang
+      println(s"suck it will: $ang for point: $left $middle $right")
+      if(ang.isNaN){
+        Double.MaxValue
+      }
+      else
+        ang
     }
 
     val res = for (
@@ -136,7 +147,7 @@ object NidhoggrPipeline {
         def pointEnergy(i: Int, p: Coordinate): Double = {
           val left = contour(math.abs((i - 1) % contour.length))
           val right = contour((i + 1) % contour.length)
-          (-1 * (dist(left, p) + dist(p, right))) + (-20 * math.abs(angle(left, p, right))) + (-10 * input._2.image.nGet(contour(i)._1)(contour(i)._2))
+          (1 * (dist(left, p) + dist(p, right))) + (-20 * math.abs(angle(left, p, right))) + (-10 * input._2.image.nGet(contour(i)._1)(contour(i)._2))
         }
 
         @tailrec
@@ -152,7 +163,7 @@ object NidhoggrPipeline {
               (p._1 - v, p._2),
               (p._1 - v, p._2 - v)
             )
-          }
+          }.filter(!contour.contains(_))
           val possible = cords.flatten.map((c: Coordinate) => (c, pointEnergy(i, c))).filter(_._2 < e).sortBy(_._2).toList
           possible match {
             case n :: ns => iterPoint(i)(n._1, n._2)
@@ -163,7 +174,7 @@ object NidhoggrPipeline {
         val pointEnergies = for (i <- 0 until contour.size) yield {
           iterPoint(i)(contour(i), pointEnergy(i, contour(i)))
         }
-        val E: Double = pointEnergies.map(_._2).foldLeft(0d)((a, b) => a + b)
+        val E: Double = pointEnergies.map(_._2).foldLeft(0d)(_ + _)
         println(s"Next enegry: $E")
         if (E < energy)
           iterContour(iter + 1)(pointEnergies.map(_._1).toArray, E)
@@ -178,7 +189,7 @@ object NidhoggrPipeline {
         }
         Image((input._2.image.m, input._2.image.n), img.pix)
       }
-      PipelineMsg(input._1, contour2Image(iterContour(0)(input._1, Int.MaxValue)), task)
+      PipelineMsg(input._1, input._3, contour2Image(iterContour(0)(input._1, Int.MaxValue)), task)
     }
     res.get
   }
@@ -195,8 +206,8 @@ object NidhoggrPipeline {
   }
 
   case class Task(cell: String, file: String)
-  case class Position (x:Int,y:Int)
-  case class Velocity (u:Double,v:Double)
+  case class Position (x: Int, y: Int)
+  case class Velocity (u: Double, v: Double)
   case class Trace(image: Image, coords: Option[Coordinate])
   case class Image(dimensions: (Int, Int), pixels: Array[Int])
   object Image {
@@ -205,10 +216,10 @@ object NidhoggrPipeline {
     implicit def Image2SKImage(img: Image): SKImage = SKImage(img.dimensions._1, img.dimensions._2, img.pixels)
     implicit def Image2ImageVirtualAccessor(img: Image): ImageVirtualAccessor = new ImageVirtualAccessor(img)
   }
-   case class PipelineMsg(input: Option[(Array[Coordinate], Image)], task: Option[Task])
+   case class PipelineMsg(input: Option[(Array[Coordinate], Image, Array[Coordinate])], task: Option[Task])
   object PipelineMsg {
-    def apply(trace: Array[Coordinate], image: Image, task: Task): PipelineMsg = {
-      PipelineMsg(Some(trace, image), Some(task))
+    def apply(trace: Array[Coordinate], centroids: Array[Coordinate], image: Image, task: Task): PipelineMsg = {
+      PipelineMsg(Some(trace, image, centroids), Some(task))
     }
   }
 

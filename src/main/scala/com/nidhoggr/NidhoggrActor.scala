@@ -91,7 +91,7 @@ class NidhoggrActor extends Actor with HttpService {
             else {
               val trace = cell.parseJson.convertTo[Array[(Int, Int)]]
               val cents = centroids.parseJson.convertTo[Array[(Int, Int)]]
-              workLeader ! NewWork(trace, cents, Task(cSplit(0), cSplit(1)))
+              workLeader ! NewWork(trace, cents, Task(cSplit(0), cSplit(1)), None)
               complete(HttpResponse(202, "Accepted"))
             }
         }

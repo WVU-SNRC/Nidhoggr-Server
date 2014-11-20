@@ -8,30 +8,34 @@ import scala.language.implicitConversions
 import com.sksamuel.scrimage.filter.{InvertFilter, GaussianBlurFilter, EdgeFilter}
 import com.sksamuel.scrimage.{Image => SKImage}
 
+import scala.util.Try
+
 case class AccuracyBelowThresholdException(task: Task) extends RuntimeException
 
 
 object NidhoggrPipeline {
   val BLACK = -16777216
   val WHITE = -1
+  val distCoff = -7d
+  val convCoff = 0.7
+  val imgCoff = -1d
   import NidhoggrPipeline.Image._
 
-  def apply():NidhoggrPipeline = {
+  def apply(): NidhoggrPipeline = {
     new NidhoggrPipeline(List(normalize, centralize, gaussianBlur, edgeDetection, axonOptimization))
   }
 
   @tailrec
   def runPipe(pipe: PipelineResult, i: Int): PipelineMsg = pipe match {
     case (Some(pipeline), msg) =>
-      for(input <- msg.input) {
-        val output: SKImage = input._2.image
-        output.write(new File(s"pipe$i.png"))
-      }
       runPipe(pipeline(msg), i + 1)
     case (None, msg) =>
       for(input <- msg.input) {
+        val distCoff = msg.parameters._1
+        val convCoff = msg.parameters._2
+        val imgCoff = msg.parameters._3
         val output: SKImage = input._2.image
-        output.write(new File(s"output$i.png"))
+        output.write(new File(s"output-$distCoff-$convCoff-$imgCoff.png"))
       }
       msg
   }
@@ -44,7 +48,7 @@ object NidhoggrPipeline {
       val q = input._3(1)
       val xoff = p._1 - q._1
       val yoff = p._2 - q._2
-      PipelineMsg(input._1.map(c => (c._1 - xoff, c._2 - yoff)), input._3.tail, input._2, task)
+      PipelineMsg(input._1.map(c => (c._1 - xoff, c._2 - yoff)), input._3.tail, input._2, task, msg.parameters)
     }
     res.getOrElse(msg)
   }
@@ -59,30 +63,10 @@ object NidhoggrPipeline {
       //-1 produces 255 255 255 255, meaning white
       Image(img.dimensions, img.pixels.map((pix: Int) => ((pix - min) * ((WHITE - BLACK) / (max - min))) + BLACK))
     }
-    PipelineMsg(msg.input.map((input) => (input._1, normalizer(input._2.image), input._3)), msg.task)
+    PipelineMsg(msg.input.map((input) => (input._1, normalizer(input._2.image), input._3)), msg.task, msg.parameters)
   }
 
   def edgeDetection(msg: PipelineMsg): PipelineMsg = {
-    /*val sobelX = Array(Array(-1,0,1),Array(-2,0,2),Array(-1,0,1))
-    val sobelY = Array(Array(1,2,1),Array(0,0,0),Array(-1,-2,-1))
-    def convulution(img: Image):Image ={
-      def iter(img:ImageVirtualAccessor):Image = {
-        val xIndices = for (x<- 1 until img.n-1) yield x
-        val yIndices = for (y<- 1 until img.m-1) yield y
-        val indices = for{p<-xIndices;q<-yIndices} yield(p,q)
-        Image((img.m-2,img.n-2),indices.map{case(a,b)=> {
-          val pixelX = (sobelX(0)(0)*img.get(a-1)(b-1))+(sobelX(0)(1)*img.get(a)(b-1))+
-            (sobelX(1)(0)*img.get(a-1)(b))+(sobelX(1)(1)*img.get(a)(b))+
-            (sobelX(2)(0)*img.get(a-1)(b+1))+(sobelX(2)(1)*img.get(a)(b+1))
-          val pixelY = (sobelY(0)(0)*img.get(a-1)(b-1))+(sobelY(0)(1)*img.get(a)(b-1))+
-            (sobelY(1)(0)*img.get(a-1)(b))+(sobelY(1)(1)*img.get(a)(b))+
-            (sobelY(2)(0)*img.get(a-1)(b+1))+(sobelY(2)(1)*img.get(a)(b+1))
-          Math.ceil(Math.sqrt(Math.pow(pixelX,2)+Math.pow(pixelY,2))).toInt
-        }}.toArray)
-      }
-      iter(new ImageVirtualAccessor(img))
-    }
-    PipelineMsg(msg.input.get._1,convulution(msg.input.get._2.image),msg.task.get)*/
     val res = for (
       input <- msg.input;
       task <- msg.task
@@ -90,7 +74,7 @@ object NidhoggrPipeline {
       val image = input._2
       val trace = input._1
       val raster = image.image.filter(EdgeFilter)
-      PipelineMsg(trace, input._3, raster, task)
+      PipelineMsg(trace, input._3, raster, task, msg.parameters)
     }
     res.getOrElse(msg)
   }
@@ -104,7 +88,7 @@ object NidhoggrPipeline {
       val image = input._2
       val trace = input._1
       val raster = image.image.filter(GaussianBlurFilter())
-      PipelineMsg(trace, input._3, raster, task)
+      PipelineMsg(trace, input._3, raster, task, msg.parameters)
     }
     res.getOrElse(msg)
   }
@@ -117,7 +101,7 @@ object NidhoggrPipeline {
       val image = input._2
       val trace = input._1
       val raster = image.image.filter(InvertFilter)
-      PipelineMsg(trace, input._3, raster, task)
+      PipelineMsg(trace, input._3, raster, task, msg.parameters)
     }
     res.getOrElse(msg)
   }
@@ -127,9 +111,12 @@ object NidhoggrPipeline {
       math.sqrt(math.pow(p._1 - q._1, 2) + math.pow(p._2 - q._2, 2))
     }
     def angle(left: Coordinate, middle: Coordinate, right: Coordinate) = {
-      val ang = math.toDegrees(math.acos((math.pow(dist(middle, left), 2) + math.pow(dist(middle, right), 2) - math.pow(dist(left, right), 2))
-        / (2 * dist(middle, left) * dist(middle, right))))
-      println(s"suck it will: $ang for point: $left $middle $right")
+      //val ang = math.toDegrees(math.acos((math.pow(dist(middle, left), 2) + math.pow(dist(middle, right), 2) - math.pow(dist(left, right), 2))
+      //  / (2 * dist(middle, left) * dist(middle, right))))
+      val tx = left._1 - 2 * middle._1 + right._1
+      val ty = left._2 - 2 * middle._2 + right._2
+      val ang = math.pow(tx, 2) + math.pow(ty, 2)
+      //println(s"Angle: $ang for point: $left $middle $right")
       if(ang.isNaN){
         Double.MaxValue
       }
@@ -141,34 +128,30 @@ object NidhoggrPipeline {
       input <- msg.input;
       task <- msg.task
     ) yield {
+      val iva: ImageVirtualAccessor = input._2.image
       @tailrec
       def iterContour(iter: Int)(contour: Array[Coordinate], energy: Double): Array[Coordinate] = {
         println(s"Contour energy: $energy")
         def pointEnergy(i: Int, p: Coordinate): Double = {
+          val distCoff = msg.parameters._1
+          val convCoff = msg.parameters._2
+          val imgCoff = msg.parameters._3
           val left = contour(math.abs((i - 1) % contour.length))
           val right = contour((i + 1) % contour.length)
-          (1 * (dist(left, p) + dist(p, right))) + (-20 * math.abs(angle(left, p, right))) + (-10 * input._2.image.nGet(contour(i)._1)(contour(i)._2))
+          val Edist = dist(left, p) + dist(p, right)
+          val Ecurv = math.abs(angle(left, p, right))
+          val Eimg = iva.nGet(contour(i)._1)(contour(i)._2)
+          (distCoff * Edist) + (convCoff * Ecurv) + (imgCoff * Eimg)
         }
 
-        @tailrec
         def iterPoint(i: Int)(p: Coordinate, e: Double): (Coordinate, Double) = {
-          val cords = for (v <- 1 until 2) yield {
-            List(
-              (p._1 + v, p._2 + v),
-              (p._1 + v, p._2),
-              (p._1 + v, p._2 - v),
-              (p._1, p._2 + v),
-              (p._1, p._2 - v),
-              (p._1 - v, p._2 + v),
-              (p._1 - v, p._2),
-              (p._1 - v, p._2 - v)
-            )
-          }.filter(!contour.contains(_))
-          val possible = cords.flatten.map((c: Coordinate) => (c, pointEnergy(i, c))).filter(_._2 < e).sortBy(_._2).toList
-          possible match {
-            case n :: ns => iterPoint(i)(n._1, n._2)
-            case Nil => (p, e)
+          val cords = (for(x <- 0 until iva.n; y <- 0 until iva.m) yield (x, y)).filter{
+            p => {
+              !contour.contains(p) && (0 <= p._1 && p._1 <= iva.n) && (0 <= p._2 && p._2 <= iva.m)
+            }
           }
+          val possible = cords.map((c: Coordinate) => (c, pointEnergy(i, c))).filter(_._2 < e).sortBy(_._2).toList
+          Try(possible.head).getOrElse((p, e))
         }
 
         val pointEnergies = for (i <- 0 until contour.size) yield {
@@ -183,13 +166,13 @@ object NidhoggrPipeline {
       }
 
       def contour2Image(contour: Array[Coordinate]): Image = {
-        var img: ImageVirtualAccessor = Image((input._2.image.m, input._2.image.n), Vector.fill(input._2.image.m, input._2.image.n)(BLACK).flatten.toArray)
+        var img: ImageVirtualAccessor = Image((iva.m, iva.n), Vector.fill(iva.m, iva.n)(BLACK).flatten.toArray)
         for((m, n) <- contour) {
           img = img.set(n)(m)(WHITE)
         }
-        Image((input._2.image.m, input._2.image.n), img.pix)
+        Image(input._2.image.dimensions, img.pix)
       }
-      PipelineMsg(input._1, input._3, contour2Image(iterContour(0)(input._1, Int.MaxValue)), task)
+      PipelineMsg(input._1, input._3, contour2Image(iterContour(0)(input._1, Int.MaxValue)), task, msg.parameters)
     }
     res.get
   }
@@ -216,10 +199,10 @@ object NidhoggrPipeline {
     implicit def Image2SKImage(img: Image): SKImage = SKImage(img.dimensions._1, img.dimensions._2, img.pixels)
     implicit def Image2ImageVirtualAccessor(img: Image): ImageVirtualAccessor = new ImageVirtualAccessor(img)
   }
-   case class PipelineMsg(input: Option[(Array[Coordinate], Image, Array[Coordinate])], task: Option[Task])
+   case class PipelineMsg(input: Option[(Array[Coordinate], Image, Array[Coordinate])], task: Option[Task], parameters: (Double, Double, Double))
   object PipelineMsg {
-    def apply(trace: Array[Coordinate], centroids: Array[Coordinate], image: Image, task: Task): PipelineMsg = {
-      PipelineMsg(Some(trace, image, centroids), Some(task))
+    def apply(trace: Array[Coordinate], centroids: Array[Coordinate], image: Image, task: Task, params: (Double, Double, Double)): PipelineMsg = {
+      PipelineMsg(Some(trace, image, centroids), Some(task), params)
     }
   }
 
@@ -235,16 +218,17 @@ class ImageVirtualAccessor(data: NidhoggrPipeline.Image){
   lazy val n = data.dimensions._2
   lazy val length = data.pixels.length
   lazy val normalized = {
-    val min: Double = data.pixels.min
-    val max: Double = data.pixels.max
-    val n = pix.map(p => (p.toDouble - min) / (max - min))
+    val xord = pix.map(pix => (pix ^ 0xff000000).toDouble)
+    val min: Double = xord.min
+    val max: Double = xord.max
+    val n = xord.map(p => (p - min) / (max - min))
     n
   }
   def get(Row: Int)(Col: Int): Int = {
-    pix.slice(Row*n,Row*n+n)(Col)
+    pix(Row * n + Col)
   }
   def nGet(row: Int)(col: Int): Double = {
-    normalized.slice(row*n,row*n+n)(col)
+    normalized(row * n + col)
   }
 
   def set(Row: Int)(Col: Int)(Pix: Int): ImageVirtualAccessor = {

@@ -51,7 +51,7 @@ class NidhoggrWorkLeader extends Actor {
 
 
 object NidhoggrWorkLeader {
-  type NewTask = (Array[(Int, Int)], Array[(Int, Int)], Task)
+  type NewTask = (Array[(Int, Int)], Array[(Int, Int)], Task, Option[(Double, Double, Double)])
   case class NewWork(task: NewTask)
   case class WorkOrder(task: NewTask)
   case class WorkFailed(e: Exception, task: Task)

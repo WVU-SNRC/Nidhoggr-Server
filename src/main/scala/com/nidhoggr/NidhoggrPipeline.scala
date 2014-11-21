@@ -5,7 +5,7 @@ import java.io.File
 import com.nidhoggr.NidhoggrPipeline._
 import scala.annotation.tailrec
 import scala.language.implicitConversions
-import com.sksamuel.scrimage.filter.{InvertFilter, GaussianBlurFilter, EdgeFilter}
+import com.sksamuel.scrimage.filter._
 import com.sksamuel.scrimage.{Image => SKImage}
 
 import scala.util.Try
@@ -22,12 +22,19 @@ object NidhoggrPipeline {
   import NidhoggrPipeline.Image._
 
   def apply(): NidhoggrPipeline = {
-    new NidhoggrPipeline(List(normalize, centralize, gaussianBlur, edgeDetection, axonOptimization))
+    new NidhoggrPipeline(List(centralize, gaussianBlur, edgeDetection, axonOptimization))
   }
 
   @tailrec
   def runPipe(pipe: PipelineResult, i: Int): PipelineMsg = pipe match {
     case (Some(pipeline), msg) =>
+      for(input <- msg.input) {
+        val distCoff = msg.parameters._1
+        val convCoff = msg.parameters._2
+        val imgCoff = msg.parameters._3
+        val output: SKImage = input._2.image
+        output.write(new File(s"pipe$i.png"))
+      }
       runPipe(pipeline(msg), i + 1)
     case (None, msg) =>
       for(input <- msg.input) {
@@ -35,12 +42,10 @@ object NidhoggrPipeline {
         val convCoff = msg.parameters._2
         val imgCoff = msg.parameters._3
         val output: SKImage = input._2.image
-        output.write(new File(s"output-$distCoff-$convCoff-$imgCoff.png"))
+        output.write(new File(s"output $distCoff $convCoff $imgCoff.png"))
       }
       msg
   }
-
-  //TODO all of those down there
 
   def centralize(msg: PipelineMsg): PipelineMsg = {
     val res = for(input <- msg.input; task <- msg.task) yield {
@@ -54,14 +59,12 @@ object NidhoggrPipeline {
   }
 
   def normalize(msg: PipelineMsg): PipelineMsg = {
-    def normalizer(img: SKImage):Image = {
-      val min = img.pixels.min
-      val max = img.pixels.max
-      //Magic numbers below are actually integer representations of Tiff values for black and white.
-      //First byte is Alpha, followed by RGB
-      //-16777216 produces 255 0 0 0 as bytes, meaning black
-      //-1 produces 255 255 255 255, meaning white
-      Image(img.dimensions, img.pixels.map((pix: Int) => ((pix - min) * ((WHITE - BLACK) / (max - min))) + BLACK))
+    def normalizer(img: Image):Image = {
+      val nW = WHITE ^ 0xff000000
+      val iva: ImageVirtualAccessor = img
+      val min = iva.normalized.min
+      val max = iva.normalized.max
+      Image(img.dimensions, iva.normalized.map(_ * nW).map(_.toInt | 0xff000000))
     }
     PipelineMsg(msg.input.map((input) => (input._1, normalizer(input._2.image), input._3)), msg.task, msg.parameters)
   }
@@ -74,9 +77,10 @@ object NidhoggrPipeline {
       val image = input._2
       val trace = input._1
       val raster = image.image.filter(EdgeFilter)
-      PipelineMsg(trace, input._3, raster, task, msg.parameters)
+      val brighter = raster.filter(BrightnessFilter(3))
+      PipelineMsg(trace, input._3, brighter, task, msg.parameters)
     }
-    res.getOrElse(msg)
+    res.get
   }
 
 
@@ -87,10 +91,10 @@ object NidhoggrPipeline {
     ) yield {
       val image = input._2
       val trace = input._1
-      val raster = image.image.filter(GaussianBlurFilter())
+      val raster = image.image.filter(GaussianBlurFilter(10))
       PipelineMsg(trace, input._3, raster, task, msg.parameters)
     }
-    res.getOrElse(msg)
+    res.get
   }
 
   def invertImage(msg: PipelineMsg): PipelineMsg = {
@@ -131,7 +135,6 @@ object NidhoggrPipeline {
       val iva: ImageVirtualAccessor = input._2.image
       @tailrec
       def iterContour(iter: Int)(contour: Array[Coordinate], energy: Double): Array[Coordinate] = {
-        println(s"Contour energy: $energy")
         def pointEnergy(i: Int, p: Coordinate): Double = {
           val distCoff = msg.parameters._1
           val convCoff = msg.parameters._2
@@ -140,14 +143,14 @@ object NidhoggrPipeline {
           val right = contour((i + 1) % contour.length)
           val Edist = dist(left, p) + dist(p, right)
           val Ecurv = math.abs(angle(left, p, right))
-          val Eimg = iva.nGet(contour(i)._1)(contour(i)._2)
+          val Eimg = iva.nGet(p._1)(p._2)
           (distCoff * Edist) + (convCoff * Ecurv) + (imgCoff * Eimg)
         }
 
         def iterPoint(i: Int)(p: Coordinate, e: Double): (Coordinate, Double) = {
-          val cords = (for(x <- 0 until iva.n; y <- 0 until iva.m) yield (x, y)).filter{
-            p => {
-              !contour.contains(p) && (0 <= p._1 && p._1 <= iva.n) && (0 <= p._2 && p._2 <= iva.m)
+          val cords = (for(x <- 0 until iva.m; y <- 0 until iva.n) yield (x, y)).filter{
+            pix => {
+              !contour.contains(pix)
             }
           }
           val possible = cords.map((c: Coordinate) => (c, pointEnergy(i, c))).filter(_._2 < e).sortBy(_._2).toList
@@ -158,7 +161,6 @@ object NidhoggrPipeline {
           iterPoint(i)(contour(i), pointEnergy(i, contour(i)))
         }
         val E: Double = pointEnergies.map(_._2).foldLeft(0d)(_ + _)
-        println(s"Next enegry: $E")
         if (E < energy)
           iterContour(iter + 1)(pointEnergies.map(_._1).toArray, E)
         else
@@ -168,7 +170,7 @@ object NidhoggrPipeline {
       def contour2Image(contour: Array[Coordinate]): Image = {
         var img: ImageVirtualAccessor = Image((iva.m, iva.n), Vector.fill(iva.m, iva.n)(BLACK).flatten.toArray)
         for((m, n) <- contour) {
-          img = img.set(n)(m)(WHITE)
+          img = img.set(m)(n)(WHITE)
         }
         Image(input._2.image.dimensions, img.pix)
       }
@@ -218,11 +220,7 @@ class ImageVirtualAccessor(data: NidhoggrPipeline.Image){
   lazy val n = data.dimensions._2
   lazy val length = data.pixels.length
   lazy val normalized = {
-    val xord = pix.map(pix => (pix ^ 0xff000000).toDouble)
-    val min: Double = xord.min
-    val max: Double = xord.max
-    val n = xord.map(p => (p - min) / (max - min))
-    n
+    pix.map(pix => pix & ~0xffffff00)
   }
   def get(Row: Int)(Col: Int): Int = {
     pix(Row * n + Col)

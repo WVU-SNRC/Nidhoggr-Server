@@ -32,11 +32,6 @@ class NidhoggrWorkLeader extends Actor {
       }
     case WorkFailed(e, currentTask) =>
       log("%s failed task %s".format(sender(), workMap(sender())))
-      e match {
-        case ex: AccuracyBelowThresholdException =>
-          saveTask(currentTask)
-        case ex => ???
-      }
     case Terminated(actor) =>
       log("%s died while processing %s".format(sender(), workMap(sender())._2))
     case WorkResult(res) =>

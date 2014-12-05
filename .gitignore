@@ -2,3 +2,4 @@
 out/
 target/
 *.png
+GenTestData.scala

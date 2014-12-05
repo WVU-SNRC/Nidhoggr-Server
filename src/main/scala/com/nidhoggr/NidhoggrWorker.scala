@@ -18,7 +18,6 @@ class NidhoggrWorker extends Actor {
         val res = NidhoggrPipeline.runPipe((Some(NidhoggrPipeline()), PipelineMsg(trace, centroids.+:(c1), tif, task, params.getOrElse(NidhoggrPipeline.distCoff, NidhoggrPipeline.convCoff, NidhoggrPipeline.imgCoff))), 0)
         sender ! WorkResult(res)
       } catch {
-        case e @ AccuracyBelowThresholdException(currentTask) => sender ! WorkFailed(e, currentTask)
         case e: Exception => sender ! WorkFailed(e, task)
       }
   }

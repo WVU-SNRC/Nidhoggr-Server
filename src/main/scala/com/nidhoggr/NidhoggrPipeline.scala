@@ -10,7 +10,6 @@ import com.sksamuel.scrimage.{Image => SKImage}
 
 import scala.util.Try
 
-case class AccuracyBelowThresholdException(task: Task) extends RuntimeException
 
 
 object NidhoggrPipeline {
@@ -22,7 +21,7 @@ object NidhoggrPipeline {
   import NidhoggrPipeline.Image._
 
   def apply(): NidhoggrPipeline = {
-    new NidhoggrPipeline(List(centralize, gaussianBlur, edgeDetection, axonOptimization))
+    new NidhoggrPipeline(List(centralize, gaussianBlur, edgeDetection, threashhold, axonOptimization))
   }
 
   @tailrec
@@ -64,9 +63,24 @@ object NidhoggrPipeline {
       val iva: ImageVirtualAccessor = img
       val min = iva.normalized.min
       val max = iva.normalized.max
-      Image(img.dimensions, iva.normalized.map(_ * nW).map(_.toInt | 0xff000000))
+      Image(img.dimensions, iva.normalized.map(_ * nW).map(_ | 0xff000000))
     }
     PipelineMsg(msg.input.map((input) => (input._1, normalizer(input._2.image), input._3)), msg.task, msg.parameters)
+  }
+
+  def threashhold(msg: PipelineMsg): PipelineMsg = {
+    def threashit(img: Image): Image = {
+      val black = 0xff000000
+      val notSoBlack = 0xff333333
+      Image(img.dimensions, img.pixels.map{ p =>
+        if(p < notSoBlack){
+          black
+        } else {
+          p
+        }
+      })
+    }
+    PipelineMsg(msg.input.map((input) => (input._1, threashit(input._2.image), input._3)), msg.task, msg.parameters)
   }
 
   def edgeDetection(msg: PipelineMsg): PipelineMsg = {
@@ -115,18 +129,14 @@ object NidhoggrPipeline {
       math.sqrt(math.pow(p._1 - q._1, 2) + math.pow(p._2 - q._2, 2))
     }
     def angle(left: Coordinate, middle: Coordinate, right: Coordinate) = {
-      //val ang = math.toDegrees(math.acos((math.pow(dist(middle, left), 2) + math.pow(dist(middle, right), 2) - math.pow(dist(left, right), 2))
-      //  / (2 * dist(middle, left) * dist(middle, right))))
-      val tx = left._1 - 2 * middle._1 + right._1
-      val ty = left._2 - 2 * middle._2 + right._2
-      val ang = math.pow(tx, 2) + math.pow(ty, 2)
-      //println(s"Angle: $ang for point: $left $middle $right")
-      if(ang.isNaN){
-        Double.MaxValue
-      }
-      else
-        ang
+      val (a, b) = (right._2 - left._2, right._1 / left._1)
+      val c = (-left._1 * a) + (-left._2 + b)
+      val x = ((b * ((b * right._1) - (a * right._2))) - (a * c)) / (math.pow(a, 2) + math.pow(b, 2))
+      val y = ((a * ((-b * right._1) + (a * right._2))) - (b * c)) / (math.pow(a, 2) + math.pow(b, 2))
+      dist(middle, (x.toInt, y.toInt))
     }
+
+
 
     val res = for (
       input <- msg.input;
@@ -134,21 +144,27 @@ object NidhoggrPipeline {
     ) yield {
       val iva: ImageVirtualAccessor = input._2.image
       @tailrec
-      def iterContour(iter: Int)(contour: Array[Coordinate], energy: Double): Array[Coordinate] = {
+      def iterContour(iter: Int)(contour: Array[Coordinate], energy: Double, sign: Int): Array[Coordinate] = {
+        val centroid = (contour.map(_._1).foldLeft(0)(_ + _) / contour.length, contour.map(_._2).foldLeft(0)(_ + _) / contour.length)
+        println(s"centroid: $centroid")
+        val im = contour2Image(contour :+ centroid)
+        im.write(new File(s"c.iter.$iter.png"))
+        contour.map(print)
+        println()
         def pointEnergy(i: Int, p: Coordinate): Double = {
           val distCoff = msg.parameters._1
           val convCoff = msg.parameters._2
           val imgCoff = msg.parameters._3
           val left = contour(math.abs((i - 1) % contour.length))
           val right = contour((i + 1) % contour.length)
-          val Edist = dist(left, p) + dist(p, right)
+          val Edist = dist(p, centroid)
           val Ecurv = math.abs(angle(left, p, right))
           val Eimg = iva.nGet(p._1)(p._2)
-          (distCoff * Edist) + (convCoff * Ecurv) + (imgCoff * Eimg)
+          ((sign * distCoff) * Edist) + (convCoff * Ecurv) + (imgCoff * Eimg)
         }
 
         def iterPoint(i: Int)(p: Coordinate, e: Double): (Coordinate, Double) = {
-          val cords = (for(x <- 0 until iva.m; y <- 0 until iva.n) yield (x, y)).filter{
+          val cords = (for(x <- (p._1 - 5) until (p._1 + 5); y <- (p._2 - 5) until (p._2 + 5)) yield (x, y)).filter{
             pix => {
               !contour.contains(pix)
             }
@@ -162,7 +178,7 @@ object NidhoggrPipeline {
         }
         val E: Double = pointEnergies.map(_._2).foldLeft(0d)(_ + _)
         if (E < energy)
-          iterContour(iter + 1)(pointEnergies.map(_._1).toArray, E)
+          iterContour(iter + 1)(pointEnergies.map(_._1).toArray, E, sign)
         else
           contour
       }
@@ -174,21 +190,11 @@ object NidhoggrPipeline {
         }
         Image(input._2.image.dimensions, img.pix)
       }
-      PipelineMsg(input._1, input._3, contour2Image(iterContour(0)(input._1, Int.MaxValue)), task, msg.parameters)
+      PipelineMsg(input._1, input._3, contour2Image(iterContour(0)(input._1, Int.MaxValue, -1)), task, msg.parameters)
     }
     res.get
   }
 
-
-
-  def similarityCheck(msg: PipelineMsg): PipelineMsg = {
-//    def matrixGen(ref:Array[Double],obs:Array[Double]):Array[Double] = {
-//      val J = for {p<-0 to ref.length;q<-0 to obs.length} yield (p,q)
-//      J.par.map {case (a,b) => a-b}.toArray
-//
-//    }
-    ???
-  }
 
   case class Task(cell: String, file: String)
   case class Position (x: Int, y: Int)
